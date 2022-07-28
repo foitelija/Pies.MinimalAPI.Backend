@@ -1,5 +1,3 @@
-
-
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<PiesDB>(options =>
 {
@@ -9,6 +7,7 @@ builder.Services.AddDbContext<PiesDB>(options =>
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddScoped<IPieService, PieService>();
 
 var app = builder.Build();
 
@@ -29,46 +28,28 @@ if (app.Environment.IsDevelopment())
 
 
 app.UseHttpsRedirection();
-app.MapGet("/pies", async (PiesDB db) => await db.Pies.ToListAsync());
+app.MapGet("/pies", async (IPieService pieService) => Results.Ok(await pieService.GetPiesAsync()));
 
-app.MapGet("/pies/{id}", async (int id, PiesDB db) => await db.Pies.FirstOrDefaultAsync(p => p.Id == id) is Pies pies ? Results.Ok(pies) : Results.NotFound());
+app.MapGet("/pies/{id}", async (int id, IPieService pieService) => await pieService.GetPieAsync(id) is Pies pies ? Results.Ok(pies) : Results.NotFound());
 
-app.MapPost("/pies", async([FromBody] Pies pies, PiesDB db) =>
+app.MapPost("/pies", async([FromBody] Pies pies, IPieService pieService) =>
 {
-    db.Pies.Add(pies);
-    await db.SaveChangesAsync();
+    await pieService.InsertPieAsync(pies);
+    await pieService.SaveAsync();
     return Results.Created($"/pies/{pies.Id}", pies);
 });
 
-app.MapPut("/pies", async ([FromBody] Pies pie, PiesDB db) =>
+app.MapPut("/pies", async ([FromBody] Pies pie, IPieService pieService) =>
 {
-    var piesFromDb = await db.Pies.FindAsync(new object[]
-    {
-        pie.Id
-    });
-    if(piesFromDb == null)
-    {
-        return Results.NotFound();
-    }
-    piesFromDb.Name = pie.Name;
-    piesFromDb.Description = pie.Description;
-    piesFromDb.Weight = pie.Weight;
-    piesFromDb.imageUrl = pie.imageUrl;
-    piesFromDb.Price = pie.Price;
-
-    await db.SaveChangesAsync();
+    await pieService.UpdatePieAsync(pie);
+    await pieService.SaveAsync();
     return Results.NoContent();
 });
 
-app.MapDelete("/hotels/{id}", async (int id, PiesDB db) =>
+app.MapDelete("/hotels/{id}", async (int id, IPieService pieService) =>
 {
-    var piesFromDb = await db.Pies.FindAsync(new object[] { id });
-    if(piesFromDb == null)
-    {
-        return Results.NotFound();
-    }
-    db.Pies.Remove(piesFromDb);
-    await db.SaveChangesAsync();
+    await pieService.DeletePieAsync(id);
+    await pieService.SaveAsync();
     return Results.NoContent();
 });
 
@@ -76,22 +57,4 @@ app.MapDelete("/hotels/{id}", async (int id, PiesDB db) =>
 app.UseHttpsRedirection();
 
 app.Run();
-
-
-public class PiesDB : DbContext
-{
-    public PiesDB(DbContextOptions<PiesDB> options) : base(options) { }
-    public DbSet<Pies> Pies => Set<Pies>();
-}
-
-public class Pies
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public int Weight { get; set; }
-    public string imageUrl { get; set; } = string.Empty;
-    [Column(TypeName = "decimal(18,2)")]
-    public decimal Price { get; set; }
-}
 
