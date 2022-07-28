@@ -70,6 +70,11 @@
         {
             Dispose(true);
             GC.SuppressFinalize(this);
-        } 
+        }
+
+        public Task<List<Pies>> GetPiesAsync(string name)
+        {
+            return _context.Pies.Where(p => p.Name.Contains(name)).ToListAsync();
+        }
     }
 }
