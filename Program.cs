@@ -1,3 +1,4 @@
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<PiesDB>(options =>
 {
@@ -8,9 +9,27 @@ builder.Services.AddDbContext<PiesDB>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPieService, PieService>();
+builder.Services.AddSingleton<ITokenService>(new TokenService());
+builder.Services.AddSingleton<IUserService>(new UserService());
+builder.Services.AddAuthorization();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options=>
+    {
+        options.TokenValidationParameters = new()
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+        };
+    });
 
 var app = builder.Build();
-
+app.UseAuthentication();
+app.UseAuthorization();
 // Configure the HTTP request pipeline. // DB EXIST
 if (app.Environment.IsDevelopment())
 {
@@ -21,21 +40,39 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-
 app.UseHttpsRedirection();
-app.MapGet("/pies", async (IPieService pieService) => Results.Ok(await pieService.GetPiesAsync()))
+
+app.MapGet("/login", [AllowAnonymous] async (HttpContext context, ITokenService tokenService, IUserService userService) =>
+{
+    User userModel = new()
+    {
+        Usernmae = context.Request.Query["username"],
+        Password = context.Request.Query["password"]
+    };
+    var userDto = userService.GetUser(userModel);
+    if(userDto == null)
+    {
+        return Results.Unauthorized();
+    }
+    var token = tokenService.BuildToke(builder.Configuration["Jwt:Key"],
+        builder.Configuration["Jwt:Issuer"], userDto);
+    return Results.Ok(token);
+});
+
+
+app.MapGet("/pies", [Authorize] async (IPieService pieService) => Results.Ok(await pieService.GetPiesAsync()))
     .Produces<List<Pies>>(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status404NotFound)
     .WithName("GetAllPies")
     .WithTags("Getters");
 
-app.MapGet("/pies/{id}", async (int id, IPieService pieService) => await pieService.GetPieAsync(id) is Pies pies ? Results.Ok(pies) : Results.NotFound())
+app.MapGet("/pies/{id}", [Authorize] async (int id, IPieService pieService) => await pieService.GetPieAsync(id) is Pies pies ? Results.Ok(pies) : Results.NotFound())
     .Produces<Pies>(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status404NotFound)
     .WithName("GetSinglePie")
     .WithTags("Getters");
 
-app.MapPost("/pies", async([FromBody] Pies pies, IPieService pieService) =>
+app.MapPost("/pies", [Authorize] async ([FromBody] Pies pies, IPieService pieService) =>
     {
         await pieService.InsertPieAsync(pies);
         await pieService.SaveAsync();
@@ -47,7 +84,7 @@ app.MapPost("/pies", async([FromBody] Pies pies, IPieService pieService) =>
     .WithName("CreatePie")
     .WithTags("Creators");
 
-app.MapPut("/pies", async ([FromBody] Pies pie, IPieService pieService) =>
+app.MapPut("/pies", [Authorize] async ([FromBody] Pies pie, IPieService pieService) =>
     {
         await pieService.UpdatePieAsync(pie);
         await pieService.SaveAsync();
@@ -57,7 +94,7 @@ app.MapPut("/pies", async ([FromBody] Pies pie, IPieService pieService) =>
     .WithName("UpdateHotel")
     .WithTags("Updaters");
 
-app.MapDelete("/hotels/{id}", async (int id, IPieService pieService) =>
+app.MapDelete("/hotels/{id}", [Authorize] async (int id, IPieService pieService) =>
     {
         await pieService.DeletePieAsync(id);
         await pieService.SaveAsync();
@@ -66,7 +103,7 @@ app.MapDelete("/hotels/{id}", async (int id, IPieService pieService) =>
     .WithName("DeletePie")
     .WithTags("Deletes");
 
-app.MapGet("/pies/search/name/{query}", async (string query, IPieService pieService) =>
+app.MapGet("/pies/search/name/{query}", [Authorize] async (string query, IPieService pieService) =>
     await pieService.GetPiesAsync(query) is IEnumerable<Pies> pies
     ? Results.Ok(pies)
     : Results.NotFound(Array.Empty<Pies>()))
